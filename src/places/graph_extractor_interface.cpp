@@ -71,8 +71,10 @@ void GraphExtractorInterface::fillParentInfo(const GvdLayer& gvd,
       continue;
     }
 
-    CHECK(tracker.parents.count(node_index))
-        << "bad gvd voxel: " << *voxel << " @ " << node_index.transpose();
+    if (!tracker.parents.count(node_index)) {
+      // voxel lost voronoi status between being queued and fillParentInfo running
+      continue;
+    }
 
     // save primary parent first
     const GlobalIndex curr_parent = voxel->parent;
