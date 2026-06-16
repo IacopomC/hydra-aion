@@ -117,25 +117,40 @@ void FloodfillGraphExtractor::clearNodeInfo(NodeId node_id) {
   node_index_map_.erase(node_id);
 
   // remove all GVD voxels that used to be flood-filled by this node
-  for (const auto& index : node_child_map_.at(node_id)) {
-    index_graph_info_map_.erase(index);
-    modified_voxel_queue_.push(index);
+  {
+    const auto ncm_iter = node_child_map_.find(node_id);
+    if (ncm_iter != node_child_map_.end()) {
+      for (const auto& index : ncm_iter->second) {
+        index_graph_info_map_.erase(index);
+        modified_voxel_queue_.push(index);
+      }
+    }
+    node_child_map_.erase(node_id);
   }
-  node_child_map_.erase(node_id);
 
   // remove all edge book-keeping for the node
-  for (size_t edge_id : node_edge_id_map_.at(node_id)) {
-    clearEdgeInfo(edge_id, false);
-  }
-  node_edge_id_map_.erase(node_id);
-
-  for (size_t edge_id : node_edge_connections_.at(node_id)) {
-    const auto eiter = edge_info_map_.find(edge_id);
-    if (eiter != edge_info_map_.end()) {
-      eiter->second.node_connections.erase(node_id);
+  {
+    const auto neim_iter = node_edge_id_map_.find(node_id);
+    if (neim_iter != node_edge_id_map_.end()) {
+      for (size_t edge_id : neim_iter->second) {
+        clearEdgeInfo(edge_id, false);
+      }
     }
+    node_edge_id_map_.erase(node_id);
   }
-  node_edge_connections_.erase(node_id);
+
+  {
+    const auto nec_iter = node_edge_connections_.find(node_id);
+    if (nec_iter != node_edge_connections_.end()) {
+      for (size_t edge_id : nec_iter->second) {
+        const auto eiter = edge_info_map_.find(edge_id);
+        if (eiter != edge_info_map_.end()) {
+          eiter->second.node_connections.erase(node_id);
+        }
+      }
+    }
+    node_edge_connections_.erase(node_id);
+  }
 }
 
 void FloodfillGraphExtractor::clearEdgeInfo(size_t edge_id, bool clear_indices) {
@@ -196,23 +211,38 @@ void FloodfillGraphExtractor::removeNodeIndex(NodeId node_id) {
   index_graph_info_map_.erase(node_index_map_.at(node_id));
   node_index_map_.erase(node_id);
 
-  for (const auto& index : node_child_map_.at(node_id)) {
-    index_graph_info_map_.erase(index);
-  }
-  node_child_map_.erase(node_id);
-
-  for (size_t edge_id : node_edge_id_map_.at(node_id)) {
-    removeEdgeIndices(edge_id, false);
-  }
-  node_edge_id_map_.erase(node_id);
-
-  for (size_t edge_id : node_edge_connections_.at(node_id)) {
-    const auto eiter = edge_info_map_.find(edge_id);
-    if (eiter != edge_info_map_.end()) {
-      eiter->second.node_connections.erase(node_id);
+  {
+    const auto ncm_iter = node_child_map_.find(node_id);
+    if (ncm_iter != node_child_map_.end()) {
+      for (const auto& index : ncm_iter->second) {
+        index_graph_info_map_.erase(index);
+      }
     }
+    node_child_map_.erase(node_id);
   }
-  node_edge_connections_.erase(node_id);
+
+  {
+    const auto neim_iter = node_edge_id_map_.find(node_id);
+    if (neim_iter != node_edge_id_map_.end()) {
+      for (size_t edge_id : neim_iter->second) {
+        removeEdgeIndices(edge_id, false);
+      }
+    }
+    node_edge_id_map_.erase(node_id);
+  }
+
+  {
+    const auto nec_iter = node_edge_connections_.find(node_id);
+    if (nec_iter != node_edge_connections_.end()) {
+      for (size_t edge_id : nec_iter->second) {
+        const auto eiter = edge_info_map_.find(edge_id);
+        if (eiter != edge_info_map_.end()) {
+          eiter->second.node_connections.erase(node_id);
+        }
+      }
+    }
+    node_edge_connections_.erase(node_id);
+  }
 }
 
 void FloodfillGraphExtractor::removeEdgeIndices(size_t edge_id, bool clear_indices) {
