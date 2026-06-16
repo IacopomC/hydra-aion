@@ -145,8 +145,13 @@ EdgeAttributes::Ptr GraphExtractorInterface::makeEdgeInfo(const GvdLayer& layer,
 
   double min_weight = std::min(source_dist, target_dist);
 
-  const GlobalIndex source = node_index_map_.at(source_id);
-  const GlobalIndex target = node_index_map_.at(target_id);
+  const auto source_iter = node_index_map_.find(source_id);
+  const auto target_iter = node_index_map_.find(target_id);
+  if (source_iter == node_index_map_.end() || target_iter == node_index_map_.end()) {
+    return std::make_unique<EdgeAttributes>(min_weight);
+  }
+  const GlobalIndex source = source_iter->second;
+  const GlobalIndex target = target_iter->second;
   auto path = makeBresenhamLine(source, target);
   if (path.empty()) {
     // edge is smaller than voxel size, so we just take the min distance between two

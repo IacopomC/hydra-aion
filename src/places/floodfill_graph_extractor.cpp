@@ -107,6 +107,9 @@ void FloodfillGraphExtractor::removeDistantIndex(const GlobalIndex& index) {
 }
 
 void FloodfillGraphExtractor::clearNodeInfo(NodeId node_id) {
+  if (!node_index_map_.count(node_id)) {
+    return;  // already cleared; all parallel maps were erased together
+  }
   removeGraphNode(node_id);
   modified_voxel_queue_.push(node_index_map_.at(node_id));
 
@@ -127,7 +130,10 @@ void FloodfillGraphExtractor::clearNodeInfo(NodeId node_id) {
   node_edge_id_map_.erase(node_id);
 
   for (size_t edge_id : node_edge_connections_.at(node_id)) {
-    edge_info_map_.at(edge_id).node_connections.erase(node_id);
+    const auto eiter = edge_info_map_.find(edge_id);
+    if (eiter != edge_info_map_.end()) {
+      eiter->second.node_connections.erase(node_id);
+    }
   }
   node_edge_connections_.erase(node_id);
 }
@@ -147,25 +153,36 @@ void FloodfillGraphExtractor::clearEdgeInfo(size_t edge_id, bool clear_indices) 
     }
 
     for (size_t other_edge_id : info.connections) {
-      removeGraphEdge(info.source, edge_info_map_.at(other_edge_id).source);
-      edge_info_map_.at(other_edge_id).connections.erase(edge_id);
+      const auto other_iter = edge_info_map_.find(other_edge_id);
+      if (other_iter == edge_info_map_.end()) {
+        continue;  // already cleared; its back-reference to us was removed when it was cleared
+      }
+      removeGraphEdge(info.source, other_iter->second.source);
+      other_iter->second.connections.erase(edge_id);
     }
 
     for (NodeId node_id : info.node_connections) {
       removeGraphEdge(info.source, node_id);
-      node_edge_connections_.at(node_id).erase(edge_id);
+      const auto nec_iter = node_edge_connections_.find(node_id);
+      if (nec_iter != node_edge_connections_.end()) {
+        nec_iter->second.erase(edge_id);
+      }
     }
 
     if (clear_indices) {
       // invalidate all indices for the specific edge
+      const auto ncm_iter = node_child_map_.find(info.source);
       for (const auto& index : info.indices) {
         index_graph_info_map_.erase(index);
         modified_voxel_queue_.push(index);
-
-        node_child_map_.at(info.source).erase(index);
+        if (ncm_iter != node_child_map_.end()) {
+          ncm_iter->second.erase(index);
+        }
       }
-
-      node_edge_id_map_.at(info.source).erase(edge_id);
+      const auto neim_iter = node_edge_id_map_.find(info.source);
+      if (neim_iter != node_edge_id_map_.end()) {
+        neim_iter->second.erase(edge_id);
+      }
     }
   }  // end info reference lifetime
 
@@ -173,6 +190,9 @@ void FloodfillGraphExtractor::clearEdgeInfo(size_t edge_id, bool clear_indices) 
 }
 
 void FloodfillGraphExtractor::removeNodeIndex(NodeId node_id) {
+  if (!node_index_map_.count(node_id)) {
+    return;  // already cleared
+  }
   index_graph_info_map_.erase(node_index_map_.at(node_id));
   node_index_map_.erase(node_id);
 
@@ -187,7 +207,10 @@ void FloodfillGraphExtractor::removeNodeIndex(NodeId node_id) {
   node_edge_id_map_.erase(node_id);
 
   for (size_t edge_id : node_edge_connections_.at(node_id)) {
-    edge_info_map_.at(edge_id).node_connections.erase(node_id);
+    const auto eiter = edge_info_map_.find(edge_id);
+    if (eiter != edge_info_map_.end()) {
+      eiter->second.node_connections.erase(node_id);
+    }
   }
   node_edge_connections_.erase(node_id);
 }
@@ -202,20 +225,31 @@ void FloodfillGraphExtractor::removeEdgeIndices(size_t edge_id, bool clear_indic
     const EdgeInfo& info = edge_iter->second;
 
     for (size_t other_edge_id : info.connections) {
-      edge_info_map_.at(other_edge_id).connections.erase(edge_id);
+      const auto other_iter = edge_info_map_.find(other_edge_id);
+      if (other_iter != edge_info_map_.end()) {
+        other_iter->second.connections.erase(edge_id);
+      }
     }
 
     for (NodeId node_id : info.node_connections) {
-      node_edge_connections_.at(node_id).erase(edge_id);
+      const auto nec_iter = node_edge_connections_.find(node_id);
+      if (nec_iter != node_edge_connections_.end()) {
+        nec_iter->second.erase(edge_id);
+      }
     }
 
     if (clear_indices) {
+      const auto ncm_iter = node_child_map_.find(info.source);
       for (const auto& index : info.indices) {
         index_graph_info_map_.erase(index);
-        node_child_map_.at(info.source).erase(index);
+        if (ncm_iter != node_child_map_.end()) {
+          ncm_iter->second.erase(index);
+        }
       }
-
-      node_edge_id_map_.at(info.source).erase(edge_id);
+      const auto neim_iter = node_edge_id_map_.find(info.source);
+      if (neim_iter != node_edge_id_map_.end()) {
+        neim_iter->second.erase(edge_id);
+      }
     }
   }  // end info reference lifetime
 
@@ -293,7 +327,11 @@ void FloodfillGraphExtractor::addEdgeToGraph(const GvdLayer& layer,
 }
 
 void FloodfillGraphExtractor::findBadEdgeIndices(const EdgeInfo& info) {
-  const GlobalIndex start = node_index_map_.at(info.source);
+  const auto start_iter = node_index_map_.find(info.source);
+  if (start_iter == node_index_map_.end()) {
+    return;  // source node cleared before split analysis; skip this edge
+  }
+  const GlobalIndex start = start_iter->second;
   GlobalIndices indices(info.indices.begin(), info.indices.end());
 
   checked_edges_[info.id] = info.connections;
@@ -303,13 +341,21 @@ void FloodfillGraphExtractor::findBadEdgeIndices(const EdgeInfo& info) {
       continue;  // we've seen this before from the other direction
     }
 
-    const NodeId other_node = edge_info_map_.at(other_edge).source;
-    const GlobalIndex end = node_index_map_.at(other_node);
+    const auto other_iter = edge_info_map_.find(other_edge);
+    if (other_iter == edge_info_map_.end()) {
+      continue;  // edge cleared; back-reference already removed
+    }
+    const NodeId other_node = other_iter->second.source;
+    const auto end_iter = node_index_map_.find(other_node);
+    if (end_iter == node_index_map_.end()) {
+      continue;  // source node of connected edge cleared
+    }
+    const GlobalIndex end = end_iter->second;
 
     GlobalIndices curr_indices(indices);
     curr_indices.insert(curr_indices.end(),
-                        edge_info_map_.at(other_edge).indices.begin(),
-                        edge_info_map_.at(other_edge).indices.end());
+                        other_iter->second.indices.begin(),
+                        other_iter->second.indices.end());
 
     FurthestIndexResult result =
         findFurthestIndexFromLine(curr_indices, start, end, indices.size());
@@ -321,7 +367,11 @@ void FloodfillGraphExtractor::findBadEdgeIndices(const EdgeInfo& info) {
   }
 
   for (auto other_node : info.node_connections) {
-    const GlobalIndex end = node_index_map_.at(other_node);
+    const auto end_iter = node_index_map_.find(other_node);
+    if (end_iter == node_index_map_.end()) {
+      continue;  // node cleared; skip this connection
+    }
+    const GlobalIndex end = end_iter->second;
     FurthestIndexResult result = findFurthestIndexFromLine(indices, start, end);
 
     if (result.distance > config_.max_edge_deviation && result.valid) {
@@ -522,7 +572,10 @@ void FloodfillGraphExtractor::splitEdges(const GvdLayer& layer) {
       }
 
       // add original node to floodfill frontier (to redo old edge)
-      floodfill_frontier_.push(node_index_map_.at(voxel_info_iter->second.id));
+      const auto node_iter = node_index_map_.find(voxel_info_iter->second.id);
+      if (node_iter != node_index_map_.end()) {
+        floodfill_frontier_.push(node_iter->second);
+      }
       clearEdgeInfo(curr_voxel.edge_id);
 
       // add a new node and also push to floodfill frontier
