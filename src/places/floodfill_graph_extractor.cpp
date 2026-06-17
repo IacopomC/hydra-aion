@@ -312,16 +312,18 @@ bool FloodfillGraphExtractor::updateEdgeMaps(const VoxelGraphInfo& info,
     return node_edge_connections_[info.id].insert(neighbor_info.edge_id).second;
   }
 
-  if (neighbor_info.is_node) {
-    // precondition is both can't be nodes, so info.edge_id is safe
-    return edge_info_map_.at(info.edge_id)
-        .node_connections.insert(neighbor_info.id)
-        .second;
+  // Defensive guard: zombie edge index (cleared without removing its voxel entry).
+  // extractEdges detects and clears these before reaching here; this is the fallback.
+  const auto eiter = edge_info_map_.find(info.edge_id);
+  if (eiter == edge_info_map_.end()) {
+    return false;
   }
 
-  return edge_info_map_.at(info.edge_id)
-      .connections.insert(neighbor_info.edge_id)
-      .second;
+  if (neighbor_info.is_node) {
+    return eiter->second.node_connections.insert(neighbor_info.id).second;
+  }
+
+  return eiter->second.connections.insert(neighbor_info.edge_id).second;
 }
 
 void FloodfillGraphExtractor::addEdgeToGraph(const GvdLayer& layer,
@@ -519,6 +521,16 @@ void FloodfillGraphExtractor::extractEdges(const GvdLayer& layer, bool allow_mer
     }
 
     VoxelGraphInfo curr_info = index_graph_info_map_.at(index);
+
+    // Detect and actively clear zombie edge entries: edge was cleared (e.g. by
+    // clearNodeInfo/splitEdges) but this voxel's index_graph_info_map_ entry
+    // was not removed. Clear it now and requeue for re-processing.
+    if (!curr_info.is_node && !edge_info_map_.count(curr_info.edge_id)) {
+      index_graph_info_map_.erase(index);
+      modified_voxel_queue_.push(index);
+      continue;
+    }
+
     for (const GlobalIndex& neighbor_index : neighbor_indices) {
       const GvdVoxel* neighbor = layer.getVoxelPtr(neighbor_index);
       if (!neighbor) {
